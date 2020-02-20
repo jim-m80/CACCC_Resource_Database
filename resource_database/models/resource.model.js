@@ -16,6 +16,7 @@ var resourceSchema = new mongoose.Schema({
  resourceRatingTotal: Number,
  resourceRatingCount: Number,
  resourceRatingCurrent: String,
+ resourceReferrals: Number,
 //  used to create search parameters for the database
  resourceSearchData: String 
 });

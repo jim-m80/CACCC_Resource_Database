@@ -52,6 +52,16 @@ function insertRecord(req, res) {
     resource.resourceRatingCount = 0;
     resource.resourceRatingCurrent = "TBR";
   }
+  //test if the user has given an initial number of referrals, if not, use 0.
+  var parsedReferrals = parseInt(req.body.resourceReferrals);
+  if (!isNaN(parsedReferrals) && parsedReferrals > 0)
+  {
+  	  resource.resourceReferrals = parsedReferrals;
+  }
+  else
+  {
+  	  resource.resourceReferrals = 0;
+  }
   resource.resourceSearchData = req.body.resourceAddress + " " + req.body.resourceWebsite + " " + req.body.resourceName + " " + req.body.resourceType + " " + req.body.resourceZip + " " + req.body.resourceCity;
 
   resource.save((err, doc) => {
@@ -74,9 +84,21 @@ function insertRecord(req, res) {
 function updateRecord(req, res) {
   req.body.resourceSearchData = req.body.resourceAddress + " " + req.body.resourceWebsite + " " + req.body.resourceName + " " + req.body.resourceType + " " + req.body.resourceZip + " " + req.body.resourceCity;
 
-  Resource.findById(req.body._id, 'resourceRatingTotal resourceRatingCount resourceRatingCurrent', function (err, dat) {
+	Resource.findById(req.body._id, 'resourceRatingTotal resourceRatingCount resourceRatingCurrent resourceReferrals', function (err, dat) {
     if (err) { console.log("error upating record"); }
-
+	//we set any parts needed for rating that are NaN in the database to 0 or TBR for current rating to account for older resources.
+	if (isNaN(dat.resourceRatingCount))
+	{
+		dat.resourceRatingCount = 0;
+	}
+	if (isNaN(dat.resourceRatingTotal))
+	{
+		dat.resourceRatingTotal = 0;
+	}
+	if (isNaN(dat.resourceRatingCount))
+	{
+		dat.resourceRatingCurrent = "TBR";
+	}
     var ratingUpdated = false;
     var parsedRating = parseFloat(req.body.resourceRatingTotal);
     //update rating
@@ -92,6 +114,22 @@ function updateRecord(req, res) {
       req.body.resourceRatingTotal = dat.resourceRatingTotal;
       req.body.resourceRatingCount = dat.resourceRatingCount;
     }
+
+	//test if the user has given an a new number of referrals and add them to the total if so. if not, keep the current number of refferals.
+	//if the current value in the database is not a number, we set it to 0.
+	if (isNaN(dat.resourceReferrals))
+	{
+		dat.resourceReferrals = 0;
+	}
+	var parsedReferrals = parseInt(req.body.resourceReferrals);
+	if (!isNaN(parsedReferrals) && parsedReferrals > 0)
+	{
+  		req.body.resourceReferrals = parseInt(dat.resourceReferrals) + parsedReferrals;
+	}
+	else
+	{
+  		req.body.resourceReferrals = dat.resourceReferrals;
+	}
 
     Resource.findOneAndUpdate({ _id: req.body._id }, req.body, { new: true }, (err, doc) => {
       if (!err) { res.redirect('resource/list'); }
