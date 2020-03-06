@@ -3,8 +3,68 @@ const express = require('express');
 var router = express.Router();
 const mongoose = require('mongoose');
 const Resource = mongoose.model('resource');
+const formidable = require('formidable');
 var http = require('http');
+const fs = require('fs');
 
+//GET request for Uploads
+router.get('/uploads/:id', (req, res) => {
+  Resource.findById(req.params.id, (err, doc) => {
+    if (!err) {
+      res.render("resource/uploads", {
+        viewTitle: "Uploads",
+        resource: doc,
+        files: doc.resourceFiles,
+      });
+    }
+  });
+});
+//POST request for Uploads (multipart form needs formidable)
+//attachments are saved in "attachments/<id>"
+router.post('/uploads', (req, res) => {
+  var id;
+  var fileName;
+  const form = formidable.IncomingForm({
+    keepExtensions: true,
+    uploadDir: "tmp/"
+  });
+
+  form.parse(req, (err, fields, files) => {
+    if (err) {
+      console.log("error during attachment form parsing: " + err);
+      res.redirect('/uploads/' + id);
+    }
+    const uploadDirectory = "attachments/" + fields._id;
+    id = fields._id;
+
+    if (!fs.existsSync(uploadDirectory)) {
+      fs.mkdirSync(uploadDirectory);
+    }
+
+    fileName = files.fileUpload.name;
+    const tmpFile = files.fileUpload.path;
+    fs.renameSync(tmpFile, uploadDirectory + "/" + fileName);
+
+    //add the new uploaded filename to the record
+    Resource.findById(id, (err, resource) => {
+      if (err) {
+        console.log("error during attachment resource finding (id: " + id + "): " + err);
+      }
+      else if (resource == null) {
+        console.log("resource not found");
+      } else {
+        resource.resourceFiles.push(fileName);
+        resource.save((err, doc) => {
+          if (err)
+            console.log('Error during attachment insertion: ' + err);
+          res.redirect('/uploads/' + id);
+        });
+      }
+    });
+
+
+  });
+});
 // GET request for Insert Resource
 router.get('/', (req, res) => {
   res.render("resource/addOrEdit", {
@@ -12,10 +72,11 @@ router.get('/', (req, res) => {
   });
 });
 
+
 // GET request for Insert Resource
-router.get('../', (req, res) => {
-  res.redirect('resource/list');
-});
+//router.get('../', (req, res) => {
+//  res.redirect('resource/list');
+//});
 
 // POST request for Insert Resource
 router.post('/', (req, res) => {
@@ -52,6 +113,14 @@ function insertRecord(req, res) {
     resource.resourceRatingCount = 0;
     resource.resourceRatingCurrent = "TBR";
   }
+  //test if the user has given an initial number of referrals, if not, use 0.
+  var parsedReferrals = parseInt(req.body.resourceReferrals);
+  if (!isNaN(parsedReferrals) && parsedReferrals > 0) {
+    resource.resourceReferrals = parsedReferrals;
+  }
+  else {
+    resource.resourceReferrals = 0;
+  }
   resource.resourceSearchData = req.body.resourceAddress + " " + req.body.resourceWebsite + " " + req.body.resourceName + " " + req.body.resourceType + " " + req.body.resourceZip + " " + req.body.resourceCity;
 
   resource.save((err, doc) => {
@@ -74,9 +143,18 @@ function insertRecord(req, res) {
 function updateRecord(req, res) {
   req.body.resourceSearchData = req.body.resourceAddress + " " + req.body.resourceWebsite + " " + req.body.resourceName + " " + req.body.resourceType + " " + req.body.resourceZip + " " + req.body.resourceCity;
 
-  Resource.findById(req.body._id, 'resourceRatingTotal resourceRatingCount resourceRatingCurrent', function (err, dat) {
+  Resource.findById(req.body._id, 'resourceRatingTotal resourceRatingCount resourceRatingCurrent resourceReferrals', function (err, dat) {
     if (err) { console.log("error upating record"); }
-
+    //we set any parts needed for rating that are NaN in the database to 0 or TBR for current rating to account for older resources.
+    if (isNaN(dat.resourceRatingCount)) {
+      dat.resourceRatingCount = 0;
+    }
+    if (isNaN(dat.resourceRatingTotal)) {
+      dat.resourceRatingTotal = 0;
+    }
+    if (isNaN(dat.resourceRatingCount)) {
+      dat.resourceRatingCurrent = "TBR";
+    }
     var ratingUpdated = false;
     var parsedRating = parseFloat(req.body.resourceRatingTotal);
     //update rating
@@ -91,6 +169,19 @@ function updateRecord(req, res) {
       req.body.resourceRatingCurrent = dat.resourceRatingCurrent;
       req.body.resourceRatingTotal = dat.resourceRatingTotal;
       req.body.resourceRatingCount = dat.resourceRatingCount;
+    }
+
+    //test if the user has given an a new number of referrals and add them to the total if so. if not, keep the current number of refferals.
+    //if the current value in the database is not a number, we set it to 0.
+    if (isNaN(dat.resourceReferrals)) {
+      dat.resourceReferrals = 0;
+    }
+    var parsedReferrals = parseInt(req.body.resourceReferrals);
+    if (!isNaN(parsedReferrals) && parsedReferrals > 0) {
+      req.body.resourceReferrals = parseInt(dat.resourceReferrals) + parsedReferrals;
+    }
+    else {
+      req.body.resourceReferrals = dat.resourceReferrals;
     }
 
     Resource.findOneAndUpdate({ _id: req.body._id }, req.body, { new: true }, (err, doc) => {

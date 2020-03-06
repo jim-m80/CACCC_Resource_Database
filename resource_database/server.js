@@ -11,7 +11,7 @@ var router = express.Router();
 
 // use bodyparser using express's app object
 app.use(bodyparser.urlencoded({
-    extended: true
+  extended: true
 }));
 app.use(bodyparser.json());
 
@@ -24,17 +24,17 @@ app.set('view engine', 'hbs');
 
 // express listens on port 3000 of localhost
 app.listen(3000, () => {
-    console.log('Express server started at port : 3000');
+  console.log('Express server started at port : 3000');
 });
 
 // use express's object to use resourceController as the default resource hyperlink
-app.use('/resource/',resourceController);
+app.use('/resource/', resourceController);
 
 // use express's object to set static path to CSS files
 app.use(express.static(path.join(__dirname, '/')));
 
 function handleRedirect(req, res) {
-  const targetUrl = targetBaseUrl + req.originalUrl;
+  const targetUrl = "/resource/list";
   res.redirect(targetUrl);
 }
 app.get('*', handleRedirect);
