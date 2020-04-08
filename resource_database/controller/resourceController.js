@@ -6,6 +6,50 @@ const Resource = mongoose.model('resource');
 const formidable = require('formidable');
 var http = require('http');
 const fs = require('fs');
+const path = require('path');
+var uploadDir = "attachments";
+
+const resourceTypes = [
+  "Behavioral And Mental Health Care",
+  "Child Care And After School",
+  "Disability",
+  "Drug And Alcohol",
+  "Educational",
+  "Emergency Shelters",
+  "Employment",
+  "Financial Assistance",
+  "Food And Clothing Pantries",
+  "Grief Support",
+  "Household ",
+  "Housing",
+  "Immigration And Refugee",
+  "Legal",
+  "Medical Health Care",
+  "Miscellaneous",
+  "Parenting Classes",
+  "Pet Services",
+  "Residential Group Homes",
+  "Senior Services",
+  "Transportation",
+];
+var processedResourceTypes = [];
+//processing resource types array (removing whitespace and caps)
+//we dont do this in the array to begin with for readability on the dropdown box
+resourceTypes.forEach((value, index, array) => {
+  processedResourceTypes.push(processResourceType(value));
+});
+
+function processResourceType(type) {
+  return type.replace(/ /g, '').toLowerCase(); //removing all whitespace from the requested type & making it non case sensitive
+}
+
+//processing cmd args
+process.argv.forEach((val, index, array) => {
+  if (val == "-uploadPath" && process.argv.length > index + 1) {
+    uploadDir = array[index + 1];
+    console.log("upload directory set to: " + array[index + 1]);
+  }
+});
 
 //GET request for Uploads
 router.get('/uploads/:id', (req, res) => {
@@ -14,7 +58,6 @@ router.get('/uploads/:id', (req, res) => {
       res.render("resource/uploads", {
         viewTitle: "Uploads",
         resource: doc,
-        files: doc.resourceFiles,
       });
     }
   });
@@ -23,7 +66,10 @@ router.get('/uploads/:id', (req, res) => {
 //attachments are saved in "attachments/<id>"
 router.post('/uploads', (req, res) => {
   var id;
-  var fileName;
+  var filePath;
+  if (!fs.existsSync("tmp")) {
+    fs.mkdirSync("tmp");
+  }
   const form = formidable.IncomingForm({
     keepExtensions: true,
     uploadDir: "tmp/"
@@ -34,16 +80,16 @@ router.post('/uploads', (req, res) => {
       console.log("error during attachment form parsing: " + err);
       res.redirect('/uploads/' + id);
     }
-    const uploadDirectory = "attachments/" + fields._id;
+    const uploadDirectory = uploadDir + "/" + fields._id;
     id = fields._id;
 
     if (!fs.existsSync(uploadDirectory)) {
       fs.mkdirSync(uploadDirectory);
     }
 
-    fileName = files.fileUpload.name;
+    filePath = uploadDirectory + "/" + files.fileUpload.name;
     const tmpFile = files.fileUpload.path;
-    fs.renameSync(tmpFile, uploadDirectory + "/" + fileName);
+    fs.renameSync(tmpFile, filePath);
 
     //add the new uploaded filename to the record
     Resource.findById(id, (err, resource) => {
@@ -53,7 +99,8 @@ router.post('/uploads', (req, res) => {
       else if (resource == null) {
         console.log("resource not found");
       } else {
-        resource.resourceFiles.push(fileName);
+        resource.resourceFiles.push(filePath);
+        resource.resourceFileNames.push(files.fileUpload.name);
         resource.save((err, doc) => {
           if (err)
             console.log('Error during attachment insertion: ' + err);
@@ -68,15 +115,10 @@ router.post('/uploads', (req, res) => {
 // GET request for Insert Resource
 router.get('/', (req, res) => {
   res.render("resource/addOrEdit", {
-    viewTitle: "Insert Resource"
+    viewTitle: "Insert Resource",
+    types: resourceTypes
   });
 });
-
-
-// GET request for Insert Resource
-//router.get('../', (req, res) => {
-//  res.redirect('resource/list');
-//});
 
 // POST request for Insert Resource
 router.post('/', (req, res) => {
@@ -89,7 +131,8 @@ router.post('/', (req, res) => {
 // method to insert record into the database
 function insertRecord(req, res) {
   var resource = new Resource();
-  resource.resourceType = req.body.resourceType;
+  resource.resourceType = processResourceType(req.body.resourceType);
+  resource.resourceTypeDisplay = req.body.resourceType;
   resource.resourceName = req.body.resourceName;
   resource.resourcePhone = req.body.resourcePhone;
   resource.resourceAddress = req.body.resourceAddress;
@@ -122,7 +165,6 @@ function insertRecord(req, res) {
     resource.resourceReferrals = 0;
   }
   resource.resourceSearchData = req.body.resourceAddress + " " + req.body.resourceWebsite + " " + req.body.resourceName + " " + req.body.resourceType + " " + req.body.resourceZip + " " + req.body.resourceCity;
-
   resource.save((err, doc) => {
     if (!err)
       res.redirect('resource/list');
@@ -130,7 +172,8 @@ function insertRecord(req, res) {
       if (err.name == 'ValidationError') {
         handleValidationError(err, req.body);
         res.render("resource/addOrEdit", {
-          resource: req.body
+          resource: req.body,
+          types: resourceTypes
         });
       }
       else
@@ -184,6 +227,8 @@ function updateRecord(req, res) {
       req.body.resourceReferrals = dat.resourceReferrals;
     }
 
+    req.body.resourceTypeDisplay = req.body.resourceType;
+    req.body.resourceType = processResourceType(req.body.resourceType);
     Resource.findOneAndUpdate({ _id: req.body._id }, req.body, { new: true }, (err, doc) => {
       if (!err) { res.redirect('resource/list'); }
       else {
@@ -191,7 +236,8 @@ function updateRecord(req, res) {
           handleValidationError(err, req.body);
           res.render("resource/addOrEdit", {
             viewTitle: 'Update Resource',
-            resource: req.body
+            resource: req.body,
+            types: resourceTypes
           });
         }
         else
@@ -199,11 +245,6 @@ function updateRecord(req, res) {
       }
     });
   });
-
-
-
-
-
 }
 
 // GET request for the full list of resources
@@ -220,270 +261,21 @@ router.get('/list', (req, res) => {
   });
 });
 
-// GET request for the list of resources labeled Adoption Services
-router.get('/list/AdoptionServices', (req, res) => {
-  Resource.find({ resourceType: "Adoption Services" }, function (err, docs) {
+// GET request for filtering by a resource type
+router.get('/list/:type', (req, res) => {
+  const type = processResourceType(req.params.type)
+  if (!processedResourceTypes.includes(type)) {
+    console.log("invalid resource type: " + type);
+    return;
+  }
+  Resource.find({ resourceType: type }, (err, result) => {
     if (err) {
       console.log(err);
-      return
+      return;
     }
     else {
       res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-
-// GET request for the list of resources labeled Basic Care Groups
-router.get('/list/BasicCareGroups', (req, res) => {
-  Resource.find({ resourceType: "Basic Care Groups" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-
-// GET request for the list of resources labeled Behavorial Health
-router.get('/list/BehavorialHealth', (req, res) => {
-  Resource.find({ resourceType: "Behavorial Health" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-
-// GET request for the list of resources labeled Child Care
-router.get('/list/ChildCare', (req, res) => {
-  Resource.find({ resourceType: "Child Care" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-
-// GET request for the list of resources labeled Child Support
-router.get('/list/ChildSupport', (req, res) => {
-  Resource.find({ resourceType: "Child Support" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-
-// GET request for the list of resources labeled Community Resource Contacts
-router.get('/list/CommunityResourceContacts', (req, res) => {
-  Resource.find({ resourceType: "Community Resource Contacts" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-
-// GET request for the list of resources labeled Disability Assistance
-router.get('/list/DisabilityAssistance', (req, res) => {
-  Resource.find({ resourceType: "Disability Assistance" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-
-// GET request for the list of resources labeled Drugs and Alcohol
-router.get('/list/DrugsAndAlcohol', (req, res) => {
-  Resource.find({ resourceType: "Drug & Alcohol Resources" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-
-// GET request for the list of resources labeled Educational Resources
-router.get('/list/EducationalResources', (req, res) => {
-  Resource.find({ resourceType: "Educational Resources" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-// GET request for the list of resources labeled Emergency Housing
-router.get('/list/EmergencyHousing', (req, res) => {
-  Resource.find({ resourceType: "Emergency Housing" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-
-// GET request for the list of resources labeled Ethnic and Diversity Resources
-router.get('/list/EthnicAndDiversityResources', (req, res) => {
-  Resource.find({ resourceType: "Ethnic & Diversity Resources" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-
-// GET request for the list of resources labeled Financial Assistance
-router.get('/list/FinancialAssistance', (req, res) => {
-  Resource.find({ resourceType: "Financial Assistance" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-
-// GET request for the list of resources labeled Food Pantries
-router.get('/list/FoodPantries', (req, res) => {
-  Resource.find({ resourceType: "Food Pantries" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-
-// GET request for the list of resources labeled Job Assistance
-router.get('/list/JobAssistance', (req, res) => {
-  Resource.find({ resourceType: "Job Assistance" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-
-// GET request for the list of resources labeled Legal Information
-router.get('/list/LegalInformation', (req, res) => {
-  Resource.find({ resourceType: "Legal Information" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-
-// GET request for the list of resources labeled Parenting Classes
-router.get('/list/ParentingClasses', (req, res) => {
-  Resource.find({ resourceType: "Parenting Classes" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-
-// GET request for the list of resources labeled Pet Services
-router.get('/list/PetServices', (req, res) => {
-  Resource.find({ resourceType: "Pet Services" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
-      });
-    }
-  })
-});
-
-// GET request for the list of resources labeled Transportation Resources
-router.get('/list/TransportationResources', (req, res) => {
-  Resource.find({ resourceType: "Transportation Resources" }, function (err, docs) {
-    if (err) {
-      console.log(err);
-      return
-    }
-    else {
-      res.render("resource/list", {
-        list: docs
+        list: result
       });
     }
   })
@@ -510,7 +302,8 @@ router.get('/:id', (req, res) => {
     if (!err) {
       res.render("resource/addOrEdit", {
         viewTitle: "Update Resource",
-        resource: doc
+        resource: doc,
+        types: resourceTypes
       });
     }
   });
@@ -520,6 +313,15 @@ router.get('/:id', (req, res) => {
 router.get('/delete/:id', (req, res) => {
   Resource.findByIdAndRemove(req.params.id, (err, doc) => {
     if (!err) {
+      //delete attachments folder for it too
+      const uploadDirectory = uploadDir + "/" + req.params.id;
+      //we have to delete all files in the directory before removing it.
+      //there will be no nested folders, so only need to worry about files.
+      fs.readdirSync(uploadDir).forEach(value => {
+        const filePath = path.join(uploadDir, value);
+        fs.unlinkSync(filePath);
+      });
+      fs.rmdirSync(uploadDirectory);
       res.redirect('/resource/list');
     }
     else { console.log('Error in resource delete :' + err); }

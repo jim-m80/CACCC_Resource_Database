@@ -5,7 +5,8 @@ const path = require('path');
 const exphbs = require('express-handlebars');
 const bodyparser = require('body-parser');
 const resourceController = require('./controller/resourceController');
-const targetBaseUrl = 'http://localhost:3000/resource/list';
+const targetBaseUrl = '/resource/list';
+const handlebars = require('handlebars');
 var app = express();
 var router = express.Router();
 
@@ -33,8 +34,59 @@ app.use('/resource/', resourceController);
 // use express's object to set static path to CSS files
 app.use(express.static(path.join(__dirname, '/')));
 
-function handleRedirect(req, res) {
-  const targetUrl = "/resource/list";
-  res.redirect(targetUrl);
-}
-app.get('*', handleRedirect);
+// any unknown url goes back to the main page
+app.get('*', (req, res) => {
+  res.redirect(targetBaseUrl);
+});
+
+//for use in the uploads.hbs renderer
+handlebars.registerHelper("downloads", (list1, list2) => {
+  var body = "";
+  for (let i = 0; i < list1.length; i++) {
+    body += "<td><a href=" + handlebars.escapeExpression(list1[i]) + " download>" + handlebars.escapeExpression(list2[i]) + "</a></td >"
+  }
+  return new handlebars.SafeString(body);
+});
+//for use in the addOrEdit dropdown
+handlebars.registerHelper("selectedDropDown", (defaultValue, list) => {
+  var body = "";
+  list.forEach(element => {
+    body += "<option value=\"" + handlebars.escapeExpression(element) + "\"";
+    if (element == defaultValue) {
+      body += " selected";
+    }
+    body += ">" + handlebars.escapeExpression(element) + "</option>";
+  });
+  return new handlebars.SafeString(body);
+});
+//for use in the mainLayout.hbs dropdown
+handlebars.registerHelper("typesDropdown", () => {
+  const resourceTypes = [
+    "Behavioral And Mental Health Care",
+    "Child Care And After School",
+    "Disability",
+    "Drug And Alcohol",
+    "Educational",
+    "Emergency Shelters",
+    "Employment",
+    "Financial Assistance",
+    "Food And Clothing Pantries",
+    "Grief Support",
+    "Household ",
+    "Housing",
+    "Immigration And Refugee",
+    "Legal",
+    "Medical Health Care",
+    "Miscellaneous",
+    "Parenting Classes",
+    "Pet Services",
+    "Residential Group Homes",
+    "Senior Services",
+    "Transportation",
+  ];
+  var body = "";
+  resourceTypes.forEach(element => {
+    body += "<option value=\"" + handlebars.escapeExpression(element) + "\">" + handlebars.escapeExpression(element) + "</option>";
+  });
+  return new handlebars.SafeString(body);
+});

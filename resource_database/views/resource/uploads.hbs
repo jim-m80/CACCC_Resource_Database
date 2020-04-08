@@ -14,11 +14,9 @@
             </tr>
         </thread>
         <tbody id="tbody">
-            {{#each files}}
             <tr style="word-wrap: break-word;">
-                <td><a href="/attachments/{{../resource._id}}/{{this}}" download>{{this}}</a></td>
+                {{downloads resource.resourceFiles resource.resourceFileNames}}
             </tr>
-            {{/each}}
         </tbody>
     </table>
 </form>

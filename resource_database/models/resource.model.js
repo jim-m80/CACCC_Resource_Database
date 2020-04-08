@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 // schema of the database
 var resourceSchema = new mongoose.Schema({
     resourceType: String,
+    resourceTypeDisplay: String,
     resourceName: String,
     resourcePhone: String,
     resourceAddress: String,
@@ -21,6 +22,7 @@ var resourceSchema = new mongoose.Schema({
     resourceSearchData: String,
     //contains names of all the uploaded files
     resourceFiles: [String],
+    resourceFileNames: [String],
 });
 
 //passed the schema to a mongoose model
