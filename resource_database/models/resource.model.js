@@ -14,10 +14,13 @@ var resourceSchema = new mongoose.Schema({
     resourceWebsite: String,
     resourceServices: String,
     resourceLink: String,
-    resourceRatingTotal: Number,
-    resourceRatingCount: Number,
-    resourceRatingCurrent: String,
     resourceReferrals: Number,
+    resourceSuccessPercent: String, //% of referrals that are successful.
+    //keys are strings for each reason, value is the number of fails for that reason.
+    resourceReferralFails: {
+        type: Map,
+        of: Number
+    },
     //  used to create search parameters for the database
     resourceSearchData: String,
     //contains names of all the uploaded files

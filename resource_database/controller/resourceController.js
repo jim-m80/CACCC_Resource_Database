@@ -33,14 +33,14 @@ const resourceTypes = [
   "Transportation",
 ];
 var processedResourceTypes = [];
-//processing resource types array (removing whitespace and caps)
+//processing resource types array (removing spaces and forcing lowercase)
 //we dont do this in the array to begin with for readability on the dropdown box
-resourceTypes.forEach((value, index, array) => {
+resourceTypes.forEach(value => {
   processedResourceTypes.push(processResourceType(value));
 });
 
 function processResourceType(type) {
-  return type.replace(/ /g, '').toLowerCase(); //removing all whitespace from the requested type & making it non case sensitive
+  return type.replace(/ /g, '').toLowerCase(); //removing all spaces from the requested type & making it non case sensitive
 }
 
 //processing cmd args
@@ -63,7 +63,8 @@ router.get('/uploads/:id', (req, res) => {
   });
 });
 //POST request for Uploads (multipart form needs formidable)
-//attachments are saved in "attachments/<id>"
+//attachments are saved in the path given by the commandline arg (deafult is "attachments/")
+//each resource creates a folder in that directory with its id as the name
 router.post('/uploads', (req, res) => {
   var id;
   var filePath;
@@ -143,27 +144,9 @@ function insertRecord(req, res) {
   resource.resourceWebsite = req.body.resourceWebsite;
   resource.resourceServices = req.body.resourceServices;
   resource.resourceLink = req.body.resourceLink;
-
-  //test if the user inserted a rating with the resource, if not, give it a default rating.
-  var parsedRating = parseFloat(req.body.resourceRatingTotal);
-  if (!isNaN(parsedRating) && 0 <= req.body.resourceRatingTotal && req.body.resourceRatingTotal <= 5) {
-    resource.resourceRatingTotal = parsedRating;
-    resource.resourceRatingCount = 1;
-    resource.resourceRatingCurrent = (resource.resourceRatingTotal / resource.resourceRatingCount).toFixed(1);
-  }
-  else {
-    resource.resourceRatingTotal = 0;
-    resource.resourceRatingCount = 0;
-    resource.resourceRatingCurrent = "TBR";
-  }
-  //test if the user has given an initial number of referrals, if not, use 0.
-  var parsedReferrals = parseInt(req.body.resourceReferrals);
-  if (!isNaN(parsedReferrals) && parsedReferrals > 0) {
-    resource.resourceReferrals = parsedReferrals;
-  }
-  else {
-    resource.resourceReferrals = 0;
-  }
+  resource.resourceReferrals = 0;
+  resource.resourceSuccessPercent = "0%";
+  resource.resourceReferralFails = {};
   resource.resourceSearchData = req.body.resourceAddress + " " + req.body.resourceWebsite + " " + req.body.resourceName + " " + req.body.resourceType + " " + req.body.resourceZip + " " + req.body.resourceCity;
   resource.save((err, doc) => {
     if (!err)
@@ -186,65 +169,52 @@ function insertRecord(req, res) {
 function updateRecord(req, res) {
   req.body.resourceSearchData = req.body.resourceAddress + " " + req.body.resourceWebsite + " " + req.body.resourceName + " " + req.body.resourceType + " " + req.body.resourceZip + " " + req.body.resourceCity;
 
-  Resource.findById(req.body._id, 'resourceRatingTotal resourceRatingCount resourceRatingCurrent resourceReferrals', function (err, dat) {
-    if (err) { console.log("error upating record"); }
-    //we set any parts needed for rating that are NaN in the database to 0 or TBR for current rating to account for older resources.
-    if (isNaN(dat.resourceRatingCount)) {
-      dat.resourceRatingCount = 0;
-    }
-    if (isNaN(dat.resourceRatingTotal)) {
-      dat.resourceRatingTotal = 0;
-    }
-    if (isNaN(dat.resourceRatingCount)) {
-      dat.resourceRatingCurrent = "TBR";
-    }
-    var ratingUpdated = false;
-    var parsedRating = parseFloat(req.body.resourceRatingTotal);
-    //update rating
-    if (!isNaN(parsedRating) && 0 <= req.body.resourceRatingTotal && req.body.resourceRatingTotal <= 5) {
-      req.body.resourceRatingTotal = parseFloat(dat.resourceRatingTotal) + parsedRating;
-      req.body.resourceRatingCount = dat.resourceRatingCount + 1;
-      req.body.resourceRatingCurrent = (req.body.resourceRatingTotal / req.body.resourceRatingCount).toFixed(1);
-      ratingUpdated = true;
-    }
 
-    if (!ratingUpdated) {
-      req.body.resourceRatingCurrent = dat.resourceRatingCurrent;
-      req.body.resourceRatingTotal = dat.resourceRatingTotal;
-      req.body.resourceRatingCount = dat.resourceRatingCount;
-    }
-
-    //test if the user has given an a new number of referrals and add them to the total if so. if not, keep the current number of refferals.
-    //if the current value in the database is not a number, we set it to 0.
-    if (isNaN(dat.resourceReferrals)) {
-      dat.resourceReferrals = 0;
-    }
-    var parsedReferrals = parseInt(req.body.resourceReferrals);
-    if (!isNaN(parsedReferrals) && parsedReferrals > 0) {
-      req.body.resourceReferrals = parseInt(dat.resourceReferrals) + parsedReferrals;
+  //updating all normal fields
+  req.body.resourceTypeDisplay = req.body.resourceType;
+  req.body.resourceType = processResourceType(req.body.resourceType);
+  Resource.findOneAndUpdate({ _id: req.body._id }, req.body, { new: true }, (err, doc) => {
+    if (!err) {
+      //updating referrals
+      //if for some reason the referrals gets corrupted, we will set it back to 0.
+      if (isNaN(doc.resourceReferrals)) {
+        doc.resourceReferrals = 0;
+      }
+      if (req.body.resourceReferral != "") {
+        //update referrals based on the input
+        doc.resourceReferrals += 1;
+        if (req.body.resourceReferral != "Successful") {
+          if (doc.resourceReferralFails.has(req.body.resourceReferral)) {
+            doc.resourceReferralFails.set(req.body.resourceReferral, doc.resourceReferralFails.get(req.body.resourceReferral) + 1);
+          }
+          else {
+            doc.resourceReferralFails.set(req.body.resourceReferral, 1); //first instance of this reason.
+          }
+        }
+        var totalFails = 0;
+        for (const fail of doc.resourceReferralFails.values()) {
+          totalFails += fail;
+        }
+        doc.resourceSuccessPercent = (100 - 100 * totalFails / doc.resourceReferrals).toFixed(0) + "%";
+      }
+      doc.save();
+      res.redirect('resource/list');
     }
     else {
-      req.body.resourceReferrals = dat.resourceReferrals;
-    }
-
-    req.body.resourceTypeDisplay = req.body.resourceType;
-    req.body.resourceType = processResourceType(req.body.resourceType);
-    Resource.findOneAndUpdate({ _id: req.body._id }, req.body, { new: true }, (err, doc) => {
-      if (!err) { res.redirect('resource/list'); }
-      else {
-        if (err.name == 'ValidationError') {
-          handleValidationError(err, req.body);
-          res.render("resource/addOrEdit", {
-            viewTitle: 'Update Resource',
-            resource: req.body,
-            types: resourceTypes
-          });
-        }
-        else
-          console.log('Error during record update : ' + err);
+      if (err.name == 'ValidationError') {
+        handleValidationError(err, req.body);
+        res.render("resource/addOrEdit", {
+          viewTitle: 'Update Resource',
+          resource: req.body,
+          types: resourceTypes
+        });
       }
-    });
+      else
+        console.log('Error during record update : ' + err);
+    }
   });
+
+
 }
 
 // GET request for the full list of resources
@@ -314,15 +284,15 @@ router.get('/delete/:id', (req, res) => {
   Resource.findByIdAndRemove(req.params.id, (err, doc) => {
     if (!err) {
       //delete attachments folder for it too
-      const uploadDirectory = uploadDir + "/" + req.params.id;
+      //const uploadDirectory = uploadDir + "/" + req.params.id;
       //we have to delete all files in the directory before removing it.
       //there will be no nested folders, so only need to worry about files.
-      fs.readdirSync(uploadDir).forEach(value => {
-        const filePath = path.join(uploadDir, value);
-        fs.unlinkSync(filePath);
-      });
-      fs.rmdirSync(uploadDirectory);
-      res.redirect('/resource/list');
+      //fs.readdirSync(uploadDir).forEach(value => {
+      //  const filePath = path.join(uploadDir, value);
+      //  fs.unlinkSync(filePath);
+      //});
+      //fs.rmdirSync(uploadDirectory);
+      //res.redirect('/resource/list');
     }
     else { console.log('Error in resource delete :' + err); }
   });
