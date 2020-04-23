@@ -1,12 +1,58 @@
+const fs = require('fs');
+//mongoDB executable path
+var mongoPath = "C:\\Program Files\\MongoDB\\Server\\4.2\\bin\\mongod.exe";
+//database directory path
+var dbPath = (process.env.APPDATA || (process.platform == 'darwin' ? process.env.HOME + '/Library/Preferences' : process.env.HOME + "/.local/share")) + "/resourceDatabase/db/";
+//file uploads path
+process.uploadDir = (process.env.APPDATA || (process.platform == 'darwin' ? process.env.HOME + '/Library/Preferences' : process.env.HOME + "/.local/share")) + "/resourceDatabase/assets/attachments/";
+//should we spawn a mongo process?
+var startMongo = true;
+//processing cmd args
+process.argv.forEach((val, index, array) => {
+  //changes directory for file uploads
+  if (val == "-uploadPath" && process.argv.length > index + 1) {
+    if (!fs.existsSync(array[index + 1])) {
+      fs.mkdirSync(array[index + 1], { recursive: true });
+    }
+    process.uploadDir = array[index + 1];
+    console.log("upload directory set to: " + array[index + 1]);
+  }
+  //changes path to mongoDB executable
+  if (val == "-mongoPath" && process.argv.length > index + 1) {
+    mongoPath = array[index + 1];
+    console.log("mongo path set to: " + array[index + 1]);
+  }
+  //changes where the database files are stored to/read from
+  if (val == "-dbPath" && process.argv.length > index + 1) {
+    if (!fs.existsSync(array[index + 1])) {
+      fs.mkdirSync(array[index + 1], { recursive: true });
+    }
+    dbPath = fs.realpathSync(array[index + 1]);
+    console.log("db path set to: " + array[index + 1]);
+  }
+  //makes us not start a mongo process ourselves
+  if (val == "-dontStartMongo") {
+    startMongo = false;
+    console.log("startMongo set to: false");
+  }
+});
+//run mongoDB executable
+if (startMongo) {
+  const childProcess = require('child_process');
+  childProcess.execFile(mongoPath, ["--dbpath", dbPath]);
+  console.log("command ran: " + mongoPath + " --dbpath " + dbPath);
+}
+
+
 // initialize various services
 require('./models/db');
+require('./helpers'); //initialize handlebars helpers
 const express = require('express');
 const path = require('path');
 const exphbs = require('express-handlebars');
 const bodyparser = require('body-parser');
 const resourceController = require('./controller/resourceController');
 const targetBaseUrl = '/resource/list';
-const handlebars = require('handlebars');
 var app = express();
 var router = express.Router();
 
@@ -37,63 +83,4 @@ app.use(express.static(path.join(__dirname, '/')));
 // any unknown url goes back to the main page
 app.get('*', (req, res) => {
   res.redirect(targetBaseUrl);
-});
-
-//for use in the uploads.hbs renderer
-handlebars.registerHelper("downloads", (list1, list2) => {
-  var body = "";
-  for (let i = 0; i < list1.length; i++) {
-    body += "<td><a href=" + handlebars.escapeExpression(list1[i]) + " download>" + handlebars.escapeExpression(list2[i]) + "</a></td >"
-  }
-  return new handlebars.SafeString(body);
-});
-//for use in the addOrEdit dropdown
-handlebars.registerHelper("selectedDropDown", (defaultValue, list) => {
-  var body = "";
-  list.forEach(element => {
-    body += "<option value=\"" + handlebars.escapeExpression(element) + "\"";
-    if (element == defaultValue) {
-      body += " selected";
-    }
-    body += ">" + handlebars.escapeExpression(element) + "</option>";
-  });
-  return new handlebars.SafeString(body);
-});
-//for use in the mainLayout.hbs dropdown
-handlebars.registerHelper("typesDropdown", () => {
-  const resourceTypes = [
-    "Behavioral And Mental Health Care",
-    "Child Care And After School",
-    "Disability",
-    "Drug And Alcohol",
-    "Educational",
-    "Emergency Shelters",
-    "Employment",
-    "Financial Assistance",
-    "Food And Clothing Pantries",
-    "Grief Support",
-    "Household ",
-    "Housing",
-    "Immigration And Refugee",
-    "Legal",
-    "Medical Health Care",
-    "Miscellaneous",
-    "Parenting Classes",
-    "Pet Services",
-    "Residential Group Homes",
-    "Senior Services",
-    "Transportation",
-  ];
-  var body = "";
-  resourceTypes.forEach(element => {
-    body += "<option value=\"" + handlebars.escapeExpression(element) + "\">" + handlebars.escapeExpression(element) + "</option>";
-  });
-  return new handlebars.SafeString(body);
-});
-handlebars.registerHelper("alertFails", (dict, total) => {
-  var output = "alert('Total Referrals: " + handlebars.escapeExpression(total) + "\\n";
-  for (let key of dict.keys()) {
-    output += handlebars.escapeExpression(key) + ": " + handlebars.escapeExpression(dict.get(key)) + "\\n";
-  }
-  return new handlebars.SafeString(output + "')");
 });

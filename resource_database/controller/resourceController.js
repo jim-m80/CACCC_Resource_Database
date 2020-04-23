@@ -7,49 +7,18 @@ const formidable = require('formidable');
 var http = require('http');
 const fs = require('fs');
 const path = require('path');
-var uploadDir = "attachments";
+var uploadDir = process.uploadDir;
 
-const resourceTypes = [
-  "Behavioral And Mental Health Care",
-  "Child Care And After School",
-  "Disability",
-  "Drug And Alcohol",
-  "Educational",
-  "Emergency Shelters",
-  "Employment",
-  "Financial Assistance",
-  "Food And Clothing Pantries",
-  "Grief Support",
-  "Household ",
-  "Housing",
-  "Immigration And Refugee",
-  "Legal",
-  "Medical Health Care",
-  "Miscellaneous",
-  "Parenting Classes",
-  "Pet Services",
-  "Residential Group Homes",
-  "Senior Services",
-  "Transportation",
-];
 var processedResourceTypes = [];
 //processing resource types array (removing spaces and forcing lowercase)
 //we dont do this in the array to begin with for readability on the dropdown box
-resourceTypes.forEach(value => {
+process.resourceTypes.forEach(value => {
   processedResourceTypes.push(processResourceType(value));
 });
 
 function processResourceType(type) {
   return type.replace(/ /g, '').toLowerCase(); //removing all spaces from the requested type & making it non case sensitive
 }
-
-//processing cmd args
-process.argv.forEach((val, index, array) => {
-  if (val == "-uploadPath" && process.argv.length > index + 1) {
-    uploadDir = array[index + 1];
-    console.log("upload directory set to: " + array[index + 1]);
-  }
-});
 
 //GET request for Uploads
 router.get('/uploads/:id', (req, res) => {
@@ -63,7 +32,7 @@ router.get('/uploads/:id', (req, res) => {
   });
 });
 //POST request for Uploads (multipart form needs formidable)
-//attachments are saved in the path given by the commandline arg (deafult is "attachments/")
+//attachments are saved in the path given by the commandline arg (deafult is "%appdata%/resourceDatabase/assets/attachments")
 //each resource creates a folder in that directory with its id as the name
 router.post('/uploads', (req, res) => {
   var id;
@@ -100,12 +69,11 @@ router.post('/uploads', (req, res) => {
       else if (resource == null) {
         console.log("resource not found");
       } else {
-        resource.resourceFiles.push(filePath);
-        resource.resourceFileNames.push(files.fileUpload.name);
+        resource.resourceFiles.set(files.fileUpload.name.replace(".", ":"), filePath); //mongoose maps cannot have '.' in a key
         resource.save((err, doc) => {
           if (err)
             console.log('Error during attachment insertion: ' + err);
-          res.redirect('/uploads/' + id);
+          res.redirect('/resource/uploads/' + id);
         });
       }
     });
@@ -113,11 +81,26 @@ router.post('/uploads', (req, res) => {
 
   });
 });
+// GET request for downloading an attachment
+router.get('/attachments/:id/:filename', (req, res) => {
+  Resource.findById(req.params.id, (err, doc) => {
+    if (err) {
+      console.log(err);
+      return;
+    }
+    res.download(doc.resourceFiles.get(req.params.filename), (err) => {
+      if (err) {
+        console.log(err);
+      }
+    });
+  });
+});
+
 // GET request for Insert Resource
 router.get('/', (req, res) => {
   res.render("resource/addOrEdit", {
     viewTitle: "Insert Resource",
-    types: resourceTypes
+    types: process.resourceTypes
   });
 });
 
@@ -147,6 +130,7 @@ function insertRecord(req, res) {
   resource.resourceReferrals = 0;
   resource.resourceSuccessPercent = "0%";
   resource.resourceReferralFails = {};
+  resource.resourceFiles = {};
   resource.resourceSearchData = req.body.resourceAddress + " " + req.body.resourceWebsite + " " + req.body.resourceName + " " + req.body.resourceType + " " + req.body.resourceZip + " " + req.body.resourceCity;
   resource.save((err, doc) => {
     if (!err)
@@ -156,7 +140,7 @@ function insertRecord(req, res) {
         handleValidationError(err, req.body);
         res.render("resource/addOrEdit", {
           resource: req.body,
-          types: resourceTypes
+          types: process.resourceTypes
         });
       }
       else
@@ -206,7 +190,7 @@ function updateRecord(req, res) {
         res.render("resource/addOrEdit", {
           viewTitle: 'Update Resource',
           resource: req.body,
-          types: resourceTypes
+          types: process.resourceTypes
         });
       }
       else
@@ -273,7 +257,7 @@ router.get('/:id', (req, res) => {
       res.render("resource/addOrEdit", {
         viewTitle: "Update Resource",
         resource: doc,
-        types: resourceTypes
+        types: process.resourceTypes
       });
     }
   });
@@ -284,15 +268,23 @@ router.get('/delete/:id', (req, res) => {
   Resource.findByIdAndRemove(req.params.id, (err, doc) => {
     if (!err) {
       //delete attachments folder for it too
-      //const uploadDirectory = uploadDir + "/" + req.params.id;
+      const folder = uploadDir + "/" + req.params.id;
       //we have to delete all files in the directory before removing it.
       //there will be no nested folders, so only need to worry about files.
-      //fs.readdirSync(uploadDir).forEach(value => {
-      //  const filePath = path.join(uploadDir, value);
-      //  fs.unlinkSync(filePath);
-      //});
-      //fs.rmdirSync(uploadDirectory);
-      //res.redirect('/resource/list');
+      fs.readdirSync(folder).forEach(value => {
+        try {
+          const filePath = path.join(folder, value);
+          fs.unlinkSync(filePath);
+        } catch (error) {
+          console.log("error in deleting resource file (" + path.join(folder, value) + "): " + error);
+        }
+      });
+      try {
+        fs.rmdirSync(folder);
+      } catch (error) {
+        console.log("error in removing resource directory (" + folder + "): " + error);
+      }
+      res.redirect('/resource/list');
     }
     else { console.log('Error in resource delete :' + err); }
   });

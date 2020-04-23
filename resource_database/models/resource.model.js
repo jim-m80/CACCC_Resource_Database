@@ -24,8 +24,11 @@ var resourceSchema = new mongoose.Schema({
     //  used to create search parameters for the database
     resourceSearchData: String,
     //contains names of all the uploaded files
-    resourceFiles: [String],
-    resourceFileNames: [String],
+    //keys are names, values are paths
+    resourceFiles: {
+        type: Map,
+        of: String
+    }
 });
 
 //passed the schema to a mongoose model

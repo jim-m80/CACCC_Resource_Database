@@ -1,3 +1,0 @@
-token: Njg2NzQ4ODY5ODUzMzE1MTA4.XmbvAQ.RL1qdQF5v9sBzgNkXbSYUhvB7bc
-clientid: 686748869853315108
-client secret: 3KR7e54vmG7bxb8JDjN98JMCBEbNx5nJ
